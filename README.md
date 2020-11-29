@@ -1,0 +1,1 @@
+# wp-all-import-template-addon
