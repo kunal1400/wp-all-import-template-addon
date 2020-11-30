@@ -32,7 +32,13 @@ final class wp_all_import_using_templaete_add_on {
         $acfKeys = $this->acf_field_key();
         if (count($acfKeys) > 0) {
         	foreach ($acfKeys as $i => $data) {
-	        $this->add_on->add_field( $data['post_excerpt'], $data['post_title'], 'text', null, '#Keys used in template', false, '' );
+				$unserializeData = unserialize( $data['post_content'] );
+				if ( $unserializeData['type'] === "image" ) {
+		        	$this->add_on->add_field( $data['post_excerpt'], $data['post_title'], 'image' );
+				}
+				else {
+		        	$this->add_on->add_field( $data['post_excerpt'], $data['post_title'], 'text', null, '#Keys used in template', false, '' );
+				}
         	}
         }
 
@@ -65,29 +71,30 @@ final class wp_all_import_using_templaete_add_on {
 
     	if ( !empty($data['reference_template_id']) ) {
 
+    		// echo "Reference Template Id detected: ".$data['reference_template_id'];
+
     		// This is the data of ACF not reference template id
 			// $unserializeData = unserialize( $referencePost->post_content );
 
     		// Getting the reference post
     		$referencePostId = $data['reference_template_id'];
     		$referencePost 	 = get_post( $referencePostId );
-    		if ( !empty( $referencePost ) ) {
-
+    		if ( $referencePost ) {    			
 				foreach ($data as $key => $value) {
 	    			if ($key !== "reference_template_id") {
-						// // If type is image then upload the image
-						// if ( $unserializeData['type'] === "image" ) {
-						// 	// echo $attachId = saveRemoteUrl($value);				
-						// 	// if($attachId) {
-	    	// 				// echo update_field( $key, $attachId, $newPostId );
-						// 	// }
-						// }
-						// else {
-	    	// 				// echo update_field( $key, $value, $newPostId );						
-						// }
-	    				update_field( $key, $value, $newPostId );						
+	    				if ( is_array($value) && !empty($value['attachment_id']) ) {
+							update_field( $key, $value['attachment_id'], $post_id );
+	    				}
+	    				else {
+							update_field( $key, $value, $post_id );
+	    				}
 	    			}
-	    		}
+				}
+
+				wp_update_post(array(
+					'ID' => $post_id,
+					'post_content' => $referencePost->post_content,
+				));
     		}
     	}    	
     }
@@ -106,8 +113,8 @@ final class wp_all_import_using_templaete_add_on {
 		    ),
 		); 
 
-		if(!empty($remoteUrl)) {
-			$filename 	= $slug.'_'.time().'.png';
+		if( !empty($remoteUrl) ) {
+			$filename 	= basename($remoteUrl);
 			$uploaddir 	= wp_upload_dir();
 			$uploadfile = $uploaddir['path'] . '/' . $filename;
 			$contents 	= file_get_contents($remoteUrl, false, stream_context_create($arrContextOptions));
@@ -115,7 +122,7 @@ final class wp_all_import_using_templaete_add_on {
 			fwrite($savefile, $contents);
 			fclose($savefile);
 
-			$wp_filetype = wp_check_filetype(basename($filename), null );
+			$wp_filetype = wp_check_filetype($filename, null );
 
 			$attachment = array(
 			    'post_mime_type' => $wp_filetype['type'],
