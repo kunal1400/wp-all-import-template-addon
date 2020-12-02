@@ -61,7 +61,7 @@ final class wp_all_import_using_templaete_add_on {
 		    }
 		}*/
 		// https://www.wpallimport.com/documentation/addon-dev/best-practices/
-        $this->add_on->run(array( 
+        $this->add_on->run(array(
         	"post_types" => array( "post", "page" )
     	));
     }
@@ -147,7 +147,7 @@ final class wp_all_import_using_templaete_add_on {
 
 wp_all_import_using_templaete_add_on::get_instance();
 
-// function acf_field_key(){	
+// function acf_field_key(){
 // 	global $wpdb;
 //     return $wpdb->get_results("SELECT * FROM $wpdb->posts WHERE post_type='acf-field';", ARRAY_A);
 // }
