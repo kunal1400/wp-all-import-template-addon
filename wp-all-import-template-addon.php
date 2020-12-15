@@ -24,10 +24,33 @@ final class wp_all_import_using_templaete_add_on {
 	protected function __construct() {
         
         // Define the add-on
-        $this->add_on = new RapidAddon( 'Import Using Template Add-On', 'yoast_seo_add_on' );
-        
+        $this->add_on = new RapidAddon( 'Import Using Template Add-On', 'template_replication_add_on' );
+		
+		// Getting all draft pages
+		$draftPosts = get_posts(
+			array(
+				'numberposts' => -1,
+				'post_status' => 'draft',
+				'post_type' => array('page')
+			)
+		);
+
+		if ( is_array($draftPosts) && count($draftPosts) > 0 ) {
+			$radioFields = array();
+			foreach ($draftPosts as $post) {
+				$radioFields[$post->ID] = $post->post_title;
+			}
+			// Rendering the radio fields
+			$this->add_on->add_field(
+			    'reference_template_id',
+			    'Select Reference Template',
+			    'radio',
+			    $radioFields
+			);
+		}		
+
         // Add UI elements to the import template
-        $this->add_on->add_field( 'reference_template_id', 'ID of template', 'text', null, '#ID of reference post/page', false, '' );
+        // $this->add_on->add_field( 'reference_template_id', 'ID of template', 'text', null, '#ID of reference post/page', false, '' );
 
         $acfKeys = $this->acf_field_key();
         if (count($acfKeys) > 0) {
@@ -49,6 +72,8 @@ final class wp_all_import_using_templaete_add_on {
         // This registers the method that will be called
         // to run the add-on.
         add_action( 'init', [ $this, 'init' ] );
+
+        $this->reference_template = null;
     }
 
     // Tell the add-on to run, add conditional statements as needed.
@@ -67,44 +92,68 @@ final class wp_all_import_using_templaete_add_on {
     }
 
     // Add the code that will actually save the imported data here.
-    public function import( $post_id, $data, $import_options ) {
-
+    public function import( $post_id, $data, $import_options ) {    	
     	if ( !empty($data['reference_template_id']) ) {
+    		/**
+    		* Getting the reference post data
+    		**/
+    		$referencePost 	 = get_post( $data['reference_template_id'] );
+		    $referencePostTemplate = get_post_meta( $referencePost->ID, '_wp_page_template', true );
 
-    		// echo "Reference Template Id detected: ".$data['reference_template_id'];
+    		if ( $referencePost ) {
+    			/**
+	    		* Generating data to update post
+	    		**/
+	    		$updatePostData = array( 'ID' => $post_id );
+			    $newPostContent = $referencePost->post_content;
 
-    		// This is the data of ACF not reference template id
-			// $unserializeData = unserialize( $referencePost->post_content );
-
-    		// Getting the reference post
-    		$referencePostId = $data['reference_template_id'];
-    		$referencePost 	 = get_post( $referencePostId );
-    		if ( $referencePost ) {    			
 				foreach ($data as $key => $value) {
 	    			if ($key !== "reference_template_id") {
 	    				if ( is_array($value) && !empty($value['attachment_id']) ) {
+	    					// Updating the acf attachment fields
 							update_field( $key, $value['attachment_id'], $post_id );
 	    				}
 	    				else {
+	    					/** 
+	    					* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
+	    					**/
+							$newPostContent = str_replace("{{{$key}}}", $value, $newPostContent);
+
+	    					// Updating the acf other fields
 							update_field( $key, $value, $post_id );
 	    				}
 	    			}
 				}
 
-				wp_update_post(array(
-					'ID' => $post_id,
-					'post_content' => $referencePost->post_content,
-				));
+				$updatePostData['post_content'] = $newPostContent;
+				if ( $referencePostTemplate ) {
+					$updatePostData['page_template'] = $referencePostTemplate;
+				}
+				wp_update_post( $updatePostData );
     		}
+    			    
+			/*if ( $template ) {
+				$this->update_page_template( $post_id, $template);
+			}*/
     	}    	
     }
 
-    function acf_field_key(){	
+    function update_page_template($postId, $template='default') {
+    	global $wpdb;
+    	$sql = "UPDATE {$wpdb->prefix}postmeta SET meta_value='".$template."' WHERE meta_key='_wp_page_template' AND post_id=".$postId;
+    	$wpdb->query($sql);
+    }
+
+    function acf_field_key() {	
 		global $wpdb;
 	    return $wpdb->get_results("SELECT * FROM $wpdb->posts WHERE post_type='acf-field';", ARRAY_A);
 	}
 
-	function saveRemoteUrl( $remoteUrl, $slug='' ) {	
+	function replaceString() {
+
+	}
+
+	/*function saveRemoteUrl( $remoteUrl, $slug='' ) {	
 		include_once( ABSPATH . 'wp-admin/includes/image.php' );
 		$arrContextOptions = array(
 		    "ssl" => array(
@@ -142,7 +191,7 @@ final class wp_all_import_using_templaete_add_on {
 		else {
 			return null;
 		}	
-	}
+	}*/
 }
 
 wp_all_import_using_templaete_add_on::get_instance();

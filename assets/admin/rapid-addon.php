@@ -103,7 +103,7 @@ if (!class_exists('RapidAddon')) {
 
 				}
 				
-				if ( $addon_active and ! empty($this->active_plugins) ){
+				if ( $addon_active and ! empty($this->active_plugins) ) {
 
 					include_once( ABSPATH . 'wp-admin/includes/plugin.php' );
 
