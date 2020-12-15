@@ -109,6 +109,9 @@ final class wp_all_import_using_templaete_add_on {
 
 				foreach ($data as $key => $value) {
 	    			if ($key !== "reference_template_id") {
+
+	    				// $cf_value = apply_filters('pmxi_acf_custom_field', $value, $post_id, $key);
+
 	    				if ( is_array($value) && !empty($value['attachment_id']) ) {
 	    					// Updating the acf attachment fields
 							update_field( $key, $value['attachment_id'], $post_id );
@@ -125,16 +128,15 @@ final class wp_all_import_using_templaete_add_on {
 	    			}
 				}
 
-				$updatePostData['post_content'] = $newPostContent;
-				if ( $referencePostTemplate ) {
-					$updatePostData['page_template'] = $referencePostTemplate;
-				}
+				$updatePostData['post_content'] = $newPostContent;				
 				wp_update_post( $updatePostData );
     		}
-    			    
-			/*if ( $template ) {
-				$this->update_page_template( $post_id, $template);
-			}*/
+    		/**
+    		* UPDATING THE PAGE TEMPLATE
+    		**/	    
+			if ( $referencePostTemplate ) {
+				$this->update_page_template( $post_id, $referencePostTemplate);
+			}
     	}    	
     }
 
