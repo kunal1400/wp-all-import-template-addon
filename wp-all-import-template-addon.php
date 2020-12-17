@@ -40,40 +40,45 @@ final class wp_all_import_using_templaete_add_on {
 			foreach ($draftPosts as $post) {
 				$radioFields[$post->ID] = $post->post_title;
 			}
-			// Rendering the radio fields
+			
+			/** 
+			* Rendering the radio fields
+			**/
 			$this->add_on->add_field(
 			    'reference_template_id',
 			    'Select Reference Template',
 			    'radio',
 			    $radioFields
 			);
-		}		
 
-        // Add UI elements to the import template
-        // $this->add_on->add_field( 'reference_template_id', 'ID of template', 'text', null, '#ID of reference post/page', false, '' );
+			/** 
+			* Rendering the acf fields
+			**/
+			$acfKeys = $this->acf_field_key();
+	        if (count($acfKeys) > 0) {
+	        	foreach ($acfKeys as $i => $data) {
+					$unserializeData = unserialize( $data['post_content'] );
+					if ( $unserializeData['type'] === "image" ) {
+			        	$this->add_on->add_field( $data['post_excerpt'], $data['post_title'], 'image' );
+					}
+					else {
+			        	$this->add_on->add_field( $data['post_excerpt'], $data['post_title'], 'text', null, '#Keys used in template', false, '' );
+					}
+	        	}
+	        }
 
-        $acfKeys = $this->acf_field_key();
-        if (count($acfKeys) > 0) {
-        	foreach ($acfKeys as $i => $data) {
-				$unserializeData = unserialize( $data['post_content'] );
-				if ( $unserializeData['type'] === "image" ) {
-		        	$this->add_on->add_field( $data['post_excerpt'], $data['post_title'], 'image' );
-				}
-				else {
-		        	$this->add_on->add_field( $data['post_excerpt'], $data['post_title'], 'text', null, '#Keys used in template', false, '' );
-				}
-        	}
-        }
+	        // This tells the add-on API which method to call
+	        // for processing imported data. 
+	        $this->add_on->set_import_function( [ $this, 'import' ] );
 
-        // This tells the add-on API which method to call
-        // for processing imported data. 
-        $this->add_on->set_import_function( [ $this, 'import' ] );
+	        // This registers the method that will be called
+	        // to run the add-on.
+	        add_action( 'init', [ $this, 'init' ] );
+		}
+		else {
+			$this->add_on->add_field( 'error_message', 'No Draft Reference Post Found', 'text', null, 'Tooltip', false, 'Ignore this field as no draft post is found' );
+		}
 
-        // This registers the method that will be called
-        // to run the add-on.
-        add_action( 'init', [ $this, 'init' ] );
-
-        $this->reference_template = null;
     }
 
     // Tell the add-on to run, add conditional statements as needed.
@@ -120,10 +125,15 @@ final class wp_all_import_using_templaete_add_on {
 	    					/** 
 	    					* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
 	    					**/
-							$newPostContent = str_replace("{{{$key}}}", $value, $newPostContent);
+							$newPostContent  = str_replace("{{{$key}}}", $value, $newPostContent);
+
+							/** 
+	    					* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
+	    					**/
+							$valueWithAcf = $this->replaceVariablesByTheirValueInCSV( $value, $data );
 
 	    					// Updating the acf other fields
-							update_field( $key, $value, $post_id );
+							update_field( $key, $valueWithAcf, $post_id );
 	    				}
 	    			}
 				}
@@ -131,6 +141,7 @@ final class wp_all_import_using_templaete_add_on {
 				$updatePostData['post_content'] = $newPostContent;				
 				wp_update_post( $updatePostData );
     		}
+    		
     		/**
     		* UPDATING THE PAGE TEMPLATE
     		**/	    
@@ -138,6 +149,17 @@ final class wp_all_import_using_templaete_add_on {
 				$this->update_page_template( $post_id, $referencePostTemplate);
 			}
     	}    	
+    }
+
+    public function replaceVariablesByTheirValueInCSV( $str="", $values ) {
+    	if ( is_array($values) && count($values) > 0 ) {
+    		foreach ($values as $key => $value) {
+				$str = str_replace("{{{$key}}}", $value, $str);    			
+    		}
+    		return $str;
+    	} else {
+    		return $values;
+    	}
     }
 
     function update_page_template($postId, $template='default') {
