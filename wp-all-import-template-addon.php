@@ -6,26 +6,83 @@ Version: 1.0
 Author: Kunal Malviya
 **/
 
-include "assets/admin/rapid-addon.php";
+define("ATI_UPLOAD_PUBLIC_PATH", plugins_url('uploads/', __FILE__));
 
-final class wp_all_import_using_templaete_add_on {
+/**
+* If the name of schedule event is same as previous one then it was not working so 
+* made it dynamic. Now if any issue occur in future then just update the name of event.
+**/
+define('SCHEDULE_HOOK_NAME', 'games_importer_cron_hook_c');
 
-	protected static $instance;
-
-	protected $add_on;
-
-	static public function get_instance() {
-	    if ( self::$instance == NULL ) {
-	        self::$instance = new self();
-	    }
-    	return self::$instance;
+/*** 
+* Plugin activation callback function.
+* This function set a schedule by providing Hook to us.
+***/
+register_activation_hook(__FILE__, function () {
+    // Schedule an action if it's not already scheduled
+	if ( ! wp_next_scheduled( SCHEDULE_HOOK_NAME ) ) {
+	    wp_schedule_event( time(), 'every_one_minute', SCHEDULE_HOOK_NAME );
 	}
+});
+
+/*** 
+* By this function we are setting the time interval
+***/
+add_filter( 'cron_schedules', function ( $schedules ) {
+    if( !isset($schedules["every_one_minute"]) ){
+    	$schedules['every_one_minute'] = array(
+	        'interval' => 60, // Every 1 minute
+	        'display'  => __( 'Every 1 minutes' ),
+	    );
+    }
+    return $schedules;
+});
+
+
+/*** 
+* When plugin deactivated then callback function will be called 
+***/
+register_deactivation_hook(__FILE__, function () {
+	update_option('_counter', 0);
+    wp_clear_scheduled_hook( SCHEDULE_HOOK_NAME );
+});
+
+
+/**
+ * 
+ */
+class All_template_importer {
 	
-	protected function __construct() {
-        
-        // Define the add-on
-        $this->add_on = new RapidAddon( 'Import Using Template Add-On', 'template_replication_add_on' );
-		
+	function __construct() {
+		$this->page_sub_menu_slug = "all_template_importer_csvs";
+		$this->page_menu_slug = "all_template_importer";
+		$this->target_dir  	= __DIR__."/uploads/";
+
+		add_action( "admin_menu", array($this, "plugin_menu") );
+		add_action( "admin_init", array($this, "handle_upload") );
+	}
+
+	public function plugin_menu() {
+		// dashicons-database-import Not working :(
+		add_menu_page("Template CSV Importer", "Template CSV Importer", "manage_options", $this->page_menu_slug, array($this, "displayUpload"), 'dashicons-admin-multisite', 90);
+
+		add_submenu_page( $this->page_menu_slug, "Uploaded CSV", "Uploaded CSV", "manage_options", $this->page_sub_menu_slug, array($this, "displayList") );
+	}
+
+	public function displayUpload() {
+		include "partials/uploadfile.php";
+	}
+
+	public function displayList() {
+		$referencePosts = $this->getReferencePosts();
+		$directoryPath = $this->target_dir;
+
+		$import_start_flag = get_option('import_start_flag');
+		$reference_post_id = get_option('reference_post_id');
+		include "partials/displaylist.php";
+	}
+
+	public function getReferencePosts() {
 		// Getting all draft pages
 		$draftPosts = get_posts(
 			array(
@@ -40,69 +97,203 @@ final class wp_all_import_using_templaete_add_on {
 			foreach ($draftPosts as $post) {
 				$radioFields[$post->ID] = $post->post_title;
 			}
-			
-			/** 
-			* Rendering the radio fields
-			**/
-			$this->add_on->add_field(
-			    'reference_template_id',
-			    'Select Reference Template',
-			    'radio',
-			    $radioFields
-			);
-
-			/** 
-			* Rendering the acf fields
-			**/
-			$acfKeys = $this->acf_field_key();
-	        if (count($acfKeys) > 0) {
-	        	foreach ($acfKeys as $i => $data) {
-					$unserializeData = unserialize( $data['post_content'] );
-					if ( $unserializeData['type'] === "image" ) {
-			        	$this->add_on->add_field( $data['post_excerpt'], $data['post_title'], 'image' );
-					}
-					else {
-			        	$this->add_on->add_field( $data['post_excerpt'], $data['post_title'], 'text', null, '#Keys used in template', false, '' );
-					}
-	        	}
-	        }
-
-	        // This tells the add-on API which method to call
-	        // for processing imported data. 
-	        $this->add_on->set_import_function( [ $this, 'import' ] );
-
-	        // This registers the method that will be called
-	        // to run the add-on.
-	        add_action( 'init', [ $this, 'init' ] );
+			return $radioFields;
 		}
 		else {
-			$this->add_on->add_field( 'error_message', 'No Draft Reference Post Found', 'text', null, 'Tooltip', false, 'Ignore this field as no draft post is found' );
+			return null;
 		}
+	}
 
+	public function handle_upload() {
+		if( isset($_POST['butimport']) ) {
+			$target_file = $this->target_dir . basename($_FILES["import_file"]["name"]);
+
+			$extension = strtolower(pathinfo($_FILES['import_file']['name'], PATHINFO_EXTENSION));
+
+			if( !empty($_FILES['import_file']['name']) && $extension == 'csv' ) {
+				
+				// Check if file already exists
+				if ( file_exists($target_file) ) {
+					add_action( 'admin_notices', array($this, 'file_already_exists_error') );
+					return;
+				}
+
+				// Check file size
+				if ($_FILES["import_file"]["size"] > 500000) {					
+					add_action( 'admin_notices', array($this, 'file_too_large') );
+					return;
+				}
+
+				if (move_uploaded_file($_FILES["import_file"]["tmp_name"], $target_file)) {
+					wp_redirect( '?page='.$this->page_sub_menu_slug );
+					exit;
+				}
+				else {
+					add_action( 'admin_notices', array($this, 'unknown_error') );
+					return;
+				}
+			}
+			else{
+				add_action( 'admin_notices', array($this, 'invalid_extension_error') );
+				return;
+		  	}
+		}
+	
+		if( isset($_POST['import_start_form']) ) {
+
+			// If reference_post_id is set or not 
+			if ( !isset($_POST['reference_post_id']) ) {
+				add_action( 'admin_notices', array($this, 'reference_post_id_required_field_error') );
+				return;
+			}
+
+			// If reference_post_id is set or not 
+			if ( !isset($_POST['import_start_flag']) ) {
+				add_action( 'admin_notices', array($this, 'reference_post_id_required_field_error') );
+				return;
+			}
+
+			$import_start_flag = sanitize_text_field( $_POST['import_start_flag'] );
+			$reference_post_id = sanitize_text_field( $_POST['reference_post_id'] );
+
+			// Updating options in wp
+			update_option('import_start_flag', $import_start_flag);
+			update_option('reference_post_id', $reference_post_id);
+
+			// // File extension
+			// $extension = strtolower(pathinfo($_FILES['import_file']['name'], PATHINFO_EXTENSION));
+
+			// // If file extension is 'csv'
+			// if( !empty($_FILES['import_file']['name']) && $extension == 'csv' ){				
+
+		 //    	$totalInserted = 0;
+
+		 //    	// Open file in read mode
+		 //    	$csvFile = fopen($_FILES['import_file']['tmp_name'], 'r');
+
+		 //    	// Getting the reference post
+   //  			$referencePost = $this->getReferencePostContent( $_POST['reference_post_id'] );
+
+		 //    	$csvFirstRow = fgetcsv($csvFile); // Skipping header row
+
+		 //    	/**
+		 //    	* Replacing all meta key name by their values for post content
+		 //    	**/
+		 //    	$i = 0;
+		 //    	$newPostContent = $referencePost->post_content;
+		 //    	$postarr = array();
+		 //    	while( ($csvData = fgetcsv($csvFile)) !== FALSE ) {
+		 //      		$csvData = array_map("utf8_encode", $csvData);		      		
+		 //      		$key 	 = $csvFirstRow[$i];
+		 //      		$value 	 = $csvData[$i];
+			// 		/** 
+			// 		* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
+			// 		**/
+			// 		$newPostContent  = str_replace("{{{$key}}}", $value, $newPostContent);
+					
+			// 		$postarr[] = array(
+			// 			'post_title' => $csvData[0].' | '.$csvData[1],
+			// 			'post_type' => 'page',
+			// 			'post_status' => 'publish'
+			// 		);
+
+		 //    		$i++;
+		 //    	}
+
+		 //    	$referencePostTemplate = get_post_meta( $referencePost->ID, '_wp_page_template', true );
+		 //    	foreach ($postarr as $i => $post) {
+			// 		$newPostId = wp_insert_post( $post );
+			// 		if ( !empty($newPostId) ) {
+			// 			wp_update_post(
+			// 				array(
+			// 					'ID' => $newPostId,
+			// 					'post_content' => $newPostContent
+			// 				)							
+			// 			);
+
+			// 			// /** 
+   //  		// 			* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
+   //  		// 			**/
+			// 			// $valueWithAcf = $this->replaceVariablesByTheirValueInCSV( $value, $csvData );
+
+   //  		// 			// Updating the acf other fields
+			// 			// update_field( $key, $valueWithAcf, $newPostId );
+			// 		}
+
+			// 		/**
+		 //    		* UPDATING THE PAGE TEMPLATE
+		 //    		**/	    
+			// 		if ( $referencePostTemplate && $newPostId ) {
+			// 			$this->update_page_template( $newPostId, $referencePostTemplate);
+			// 		}
+		 //    	}
+		 //    	// echo "<h3 style='color: green;'>Total record Inserted : ".$totalInserted."</h3>";
+		 //  	} 
+		 //  	else{
+			// 	add_action( 'admin_notices', array($this, 'invalid_extension_error') );
+			// 	return;
+		 //  	}
+		}
+	}
+
+	public function replaceVariablesByTheirValueInCSV( $str="", $values ) {
+    	if ( is_array($values) && count($values) > 0 ) {
+    		foreach ($values as $key => $value) {
+				$str = str_replace("{{{$key}}}", $value, $str);    			
+    		}
+    		return $str;
+    	} else {
+    		return $values;
+    	}
     }
 
-    // Tell the add-on to run, add conditional statements as needed.
-    public function init() {
-    	/*// This approach is needed when you need one OR another plugin active. 
-		if ( function_exists('is_plugin_active') ) {
-		    // Only run this add-on if the free or pro version of the Yoast plugin is active.
-		    if ( is_plugin_active( 'wordpress-seo/wp-seo.php' ) || is_plugin_active( 'wordpress-seo-premium/wp-seo-premium.php' ) ) {
-		        $this->add_on->run();
-		    }
-		}*/
-		// https://www.wpallimport.com/documentation/addon-dev/best-practices/
-        $this->add_on->run(array(
-        	"post_types" => array( "post", "page" )
-    	));
+	public function reference_post_id_required_field_error() {		
+		$this->showMessage('notice notice-error', 'reference_post_id is required');
+	}
+
+	public function invalid_extension_error() {
+		$this->showMessage('notice notice-error', 'Invalid Extension');
+	}
+
+	public function file_already_exists_error() {
+		$this->showMessage('notice notice-error', 'File already exists');
+	}
+
+	public function file_too_large() {
+		$this->showMessage('notice notice-error', 'Sorry, your file is too large.');
+	}
+
+	public function file_uploaded_successfully() {
+		$this->showMessage('notice notice-error', 'File uploaded successfully.');
+	}
+
+	public function unknown_error() {
+		$this->showMessage('notice notice-error', 'Some unexpected error occured');
+	}
+
+	public function showMessage( $class, $message ) {
+		$class = 'notice notice-error';
+    	$message = 'Invalid Extension';
+    	printf( '<div class="%1$s"><p>%2$s</p></div>', esc_attr( $class ), esc_html( $message ) );
+	}
+
+	public function getReferencePostContent( $reference_template_id ) {    	
+    	if ( !empty($reference_template_id) ) {    		
+    		$referencePost = get_post( $reference_template_id );
+    		$content = $referencePost->post_content;		    
+    		return $referencePost;	
+    	}
+    	else {
+    		return null;
+    	}
     }
 
-    // Add the code that will actually save the imported data here.
-    public function import( $post_id, $data, $import_options ) {    	
-    	if ( !empty($data['reference_template_id']) ) {
+	public function import( $reference_template_id ) {
+    	if ( !empty($reference_template_id) ) {
     		/**
     		* Getting the reference post data
     		**/
-    		$referencePost 	 = get_post( $data['reference_template_id'] );
+    		$referencePost 	 = get_post( $reference_template_id );
 		    $referencePostTemplate = get_post_meta( $referencePost->ID, '_wp_page_template', true );
 
     		if ( $referencePost ) {
@@ -151,87 +342,30 @@ final class wp_all_import_using_templaete_add_on {
     	}    	
     }
 
-    public function replaceVariablesByTheirValueInCSV( $str="", $values ) {
-    	if ( is_array($values) && count($values) > 0 ) {
-    		foreach ($values as $key => $value) {
-				$str = str_replace("{{{$key}}}", $value, $str);    			
-    		}
-    		return $str;
-    	} else {
-    		return $values;
-    	}
-    }
-
-    function update_page_template($postId, $template='default') {
-    	global $wpdb;
-    	$sql = "UPDATE {$wpdb->prefix}postmeta SET meta_value='".$template."' WHERE meta_key='_wp_page_template' AND post_id=".$postId;
-    	$wpdb->query($sql);
-    }
-
-    function acf_field_key() {	
-		global $wpdb;
-	    return $wpdb->get_results("SELECT * FROM $wpdb->posts WHERE post_type='acf-field';", ARRAY_A);
-	}
-
-	function replaceString() {
-
-	}
-
-	/*function saveRemoteUrl( $remoteUrl, $slug='' ) {	
-		include_once( ABSPATH . 'wp-admin/includes/image.php' );
-		$arrContextOptions = array(
-		    "ssl" => array(
-		        "verify_peer" => false,
-		        "verify_peer_name" => false,
-		    ),
-		); 
-
-		if( !empty($remoteUrl) ) {
-			$filename 	= basename($remoteUrl);
-			$uploaddir 	= wp_upload_dir();
-			$uploadfile = $uploaddir['path'] . '/' . $filename;
-			$contents 	= file_get_contents($remoteUrl, false, stream_context_create($arrContextOptions));
-			$savefile 	= fopen($uploadfile, 'w');
-			fwrite($savefile, $contents);
-			fclose($savefile);
-
-			$wp_filetype = wp_check_filetype($filename, null );
-
-			$attachment = array(
-			    'post_mime_type' => $wp_filetype['type'],
-			    'post_title' => $filename,
-			    'post_content' => '',
-			    'post_status' => 'inherit'
-			);
-
-			$attach_id 	  = wp_insert_attachment( $attachment, $uploadfile );
-			$imagenew 	  = get_post( $attach_id );
-			$fullsizepath = get_attached_file( $imagenew->ID );
-			$attach_data  = wp_generate_attachment_metadata( $attach_id, $fullsizepath );
-			wp_update_attachment_metadata( $attach_id, $attach_data );
-
-			return $attach_id;
-		}
-		else {
-			return null;
-		}	
-	}*/
 }
 
-wp_all_import_using_templaete_add_on::get_instance();
+$all_template_importer = new All_template_importer();
 
-// function acf_field_key(){
-// 	global $wpdb;
-//     return $wpdb->get_results("SELECT * FROM $wpdb->posts WHERE post_type='acf-field';", ARRAY_A);
-// }
-// $a = acf_field_key();
-// if (count($a) > 0) {
-// 	foreach ($a as $i => $data) {
-// 		if ( !empty($data['post_content']) ) {
-// 			$unserializeData = unserialize($data['post_content']);
-// 			echo "<pre>";
-// 	    	print_r($unserializeData);
-// 	    	echo "</pre>";
-// 		}    
-// 	}
-// }
+/*** 
+* Whenever hook is called then the callback function will run
+***/
+add_action( SCHEDULE_HOOK_NAME, function () {
+	// if(get_option('rawg_games_import_started') == "no") {
+	// 	return;
+	// }
+
+	/****** DB COUNTER CODE: START ******/
+	$counter = get_option('_counter');
+
+	// If counter is set in db then update
+	if( !empty($counter) ) {
+		$counter++;
+	} 
+	else {
+		$counter = 1;
+	}
+
+	// Updating the option
+	update_option('_counter', $counter);
+	/****** END ******/
+});
