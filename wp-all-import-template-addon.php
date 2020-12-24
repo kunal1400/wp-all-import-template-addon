@@ -60,6 +60,8 @@ class All_template_importer {
 
 		add_action( "admin_menu", array($this, "plugin_menu") );
 		add_action( "admin_init", array($this, "handle_upload") );
+
+		// add_action( "init", array($this, "readFile") );
 	}
 
 	public function plugin_menu() {
@@ -158,81 +160,7 @@ class All_template_importer {
 
 			// Updating options in wp
 			update_option('import_start_flag', $import_start_flag);
-			update_option('reference_post_id', $reference_post_id);
-
-			// // File extension
-			// $extension = strtolower(pathinfo($_FILES['import_file']['name'], PATHINFO_EXTENSION));
-
-			// // If file extension is 'csv'
-			// if( !empty($_FILES['import_file']['name']) && $extension == 'csv' ){				
-
-		 //    	$totalInserted = 0;
-
-		 //    	// Open file in read mode
-		 //    	$csvFile = fopen($_FILES['import_file']['tmp_name'], 'r');
-
-		 //    	// Getting the reference post
-   //  			$referencePost = $this->getReferencePostContent( $_POST['reference_post_id'] );
-
-		 //    	$csvFirstRow = fgetcsv($csvFile); // Skipping header row
-
-		 //    	/**
-		 //    	* Replacing all meta key name by their values for post content
-		 //    	**/
-		 //    	$i = 0;
-		 //    	$newPostContent = $referencePost->post_content;
-		 //    	$postarr = array();
-		 //    	while( ($csvData = fgetcsv($csvFile)) !== FALSE ) {
-		 //      		$csvData = array_map("utf8_encode", $csvData);		      		
-		 //      		$key 	 = $csvFirstRow[$i];
-		 //      		$value 	 = $csvData[$i];
-			// 		/** 
-			// 		* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
-			// 		**/
-			// 		$newPostContent  = str_replace("{{{$key}}}", $value, $newPostContent);
-					
-			// 		$postarr[] = array(
-			// 			'post_title' => $csvData[0].' | '.$csvData[1],
-			// 			'post_type' => 'page',
-			// 			'post_status' => 'publish'
-			// 		);
-
-		 //    		$i++;
-		 //    	}
-
-		 //    	$referencePostTemplate = get_post_meta( $referencePost->ID, '_wp_page_template', true );
-		 //    	foreach ($postarr as $i => $post) {
-			// 		$newPostId = wp_insert_post( $post );
-			// 		if ( !empty($newPostId) ) {
-			// 			wp_update_post(
-			// 				array(
-			// 					'ID' => $newPostId,
-			// 					'post_content' => $newPostContent
-			// 				)							
-			// 			);
-
-			// 			// /** 
-   //  		// 			* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
-   //  		// 			**/
-			// 			// $valueWithAcf = $this->replaceVariablesByTheirValueInCSV( $value, $csvData );
-
-   //  		// 			// Updating the acf other fields
-			// 			// update_field( $key, $valueWithAcf, $newPostId );
-			// 		}
-
-			// 		/**
-		 //    		* UPDATING THE PAGE TEMPLATE
-		 //    		**/	    
-			// 		if ( $referencePostTemplate && $newPostId ) {
-			// 			$this->update_page_template( $newPostId, $referencePostTemplate);
-			// 		}
-		 //    	}
-		 //    	// echo "<h3 style='color: green;'>Total record Inserted : ".$totalInserted."</h3>";
-		 //  	} 
-		 //  	else{
-			// 	add_action( 'admin_notices', array($this, 'invalid_extension_error') );
-			// 	return;
-		 //  	}
+			update_option('reference_post_id', $reference_post_id);			
 		}
 	}
 
@@ -288,74 +216,153 @@ class All_template_importer {
     	}
     }
 
-	public function import( $reference_template_id ) {
-    	if ( !empty($reference_template_id) ) {
-    		/**
-    		* Getting the reference post data
-    		**/
-    		$referencePost 	 = get_post( $reference_template_id );
-		    $referencePostTemplate = get_post_meta( $referencePost->ID, '_wp_page_template', true );
+	public function getCsvRowByIndex( $filePath, $csvrowindex=0 ) {			
+		
+		// #1 Getting the reference post id
+		$reference_post_id = get_option('reference_post_id');
 
-    		if ( $referencePost ) {
-    			/**
-	    		* Generating data to update post
-	    		**/
-	    		$updatePostData = array( 'ID' => $post_id );
-			    $newPostContent = $referencePost->post_content;
+		if ( !empty($reference_post_id) ) {
 
-				foreach ($data as $key => $value) {
-	    			if ($key !== "reference_template_id") {
+			// #2 Getting the reference post
+			$referencePost = $this->getReferencePostContent( $reference_post_id );
 
-	    				// $cf_value = apply_filters('pmxi_acf_custom_field', $value, $post_id, $key);
+			// #3 Open file in read mode
+    		$csvFile = fopen($filePath, 'r');
 
-	    				if ( is_array($value) && !empty($value['attachment_id']) ) {
-	    					// Updating the acf attachment fields
-							update_field( $key, $value['attachment_id'], $post_id );
-	    				}
-	    				else {
-	    					/** 
-	    					* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
-	    					**/
-							$newPostContent  = str_replace("{{{$key}}}", $value, $newPostContent);
+			// #4 Getting the csv header
+    		$csvFirstRow = fgetcsv($csvFile);
 
-							/** 
-	    					* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
-	    					**/
-							$valueWithAcf = $this->replaceVariablesByTheirValueInCSV( $value, $data );
+    		// #5 Generating an array of data
+	    	$postarr = array();
 
-	    					// Updating the acf other fields
-							update_field( $key, $valueWithAcf, $post_id );
-	    				}
-	    			}
+    		// #6 Generating the post content
+	    	$newPostContent = $referencePost->post_content;
+
+    		// #7 Populating the data in array
+	    	$i = 0;
+	    	while( ($csvData = fgetcsv($csvFile)) !== FALSE ) {
+	      		$csvData = array_map("utf8_encode", $csvData);		      		
+	      		$key 	 = $csvFirstRow[$i];
+	      		$value 	 = $csvData[$i];
+
+				/** 
+				* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
+				**/
+				$newPostContent = str_replace("{{{$key}}}", $value, $newPostContent);
+				
+				$subArray = array();
+				foreach ($csvFirstRow as $j => $key) {
+					$subArray[$key] = htmlentities($csvData[$j]);
 				}
 
-				$updatePostData['post_content'] = $newPostContent;				
-				wp_update_post( $updatePostData );
+				$postarr[] = $subArray;
+	    		$i++;
+	    	}
+
+	    	// #8 Closing the file
+	    	fclose($csvFile);
+
+    		// #9 Getting the array by index
+    		if ( !empty($postarr[$csvrowindex]) ) {
+    			$returnPostData = $postarr[$csvrowindex];
+    			$returnPostData['__post_content'] = htmlentities($newPostContent);
+	    		return $returnPostData;
     		}
-    		
-    		/**
-    		* UPDATING THE PAGE TEMPLATE
-    		**/	    
-			if ( $referencePostTemplate ) {
-				$this->update_page_template( $post_id, $referencePostTemplate);
+    		else {
+    			return null;
+    		}
+		}    	
+
+	   
+
+	   //  	$referencePostTemplate = get_post_meta( $referencePost->ID, '_wp_page_template', true );
+	   //  	foreach ($postarr as $i => $post) {
+				// $newPostId = wp_insert_post( $post );
+				// if ( !empty($newPostId) ) {
+				// 	wp_update_post(
+				// 		array(
+				// 			'ID' => $newPostId,
+				// 			'post_content' => $newPostContent
+				// 		)							
+				// 	);
+
+				// 	// /** 
+				// // 			* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
+				// // 			**/
+				// 			// $valueWithAcf = $this->replaceVariablesByTheirValueInCSV( $value, $csvData );
+
+				// // 			// Updating the acf other fields
+				// 			// update_field( $key, $valueWithAcf, $newPostId );
+				// }				
+	   //  	}
+	   //  	// echo "<h3 style='color: green;'>Total record Inserted : ".$totalInserted."</h3>";
+  	
+    }
+
+    public function readFile( $index=0 ) {
+		$files = list_files( $this->target_dir );
+		$csvFilePath = null;
+		foreach ($files as $i => $filePath) {
+			$extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+			if ($extension == 'csv') {
+				$csvFilePath = $filePath;
+				break;
 			}
-    	}    	
+		}
+		
+		if ($csvFilePath) {
+			$csvRowData = $this->getCsvRowByIndex( $csvFilePath, $index );
+			if( is_array($csvRowData) && count($csvRowData) > 0 ) {
+
+				// #1 Getting the reference post id
+				$reference_post_id = get_option('reference_post_id');
+
+				// #2 Getting the post array
+				$postArray = array(
+					'post_title' => $csvRowData['post_state_full_name'].' | '.$csvRowData['post_state'],
+					'post_type' => 'page',
+					'post_status' => 'publish',
+					'post_content' => html_entity_decode($csvRowData['__post_content'])
+				);
+
+				// #3 Inserting the new post
+				$newPostId = wp_insert_post( $postArray );
+
+				// #4 Getting the reference post template
+	    		$referencePostTemplate = get_post_meta( $reference_post_id, '_wp_page_template', true );
+
+				// #5 updating the new post template
+				if ( $referencePostTemplate && $newPostId ) {
+					$this->update_page_template( $newPostId, $referencePostTemplate);
+				}
+			}
+			else {
+				$this->resetAllData();
+			}
+		}
+    }
+
+    public function resetAllData() {
+    	update_option('import_start_flag', 0);
+    	update_option('_counter', 0);
     }
 
 }
 
 $all_template_importer = new All_template_importer();
 
+
 /*** 
 * Whenever hook is called then the callback function will run
 ***/
 add_action( SCHEDULE_HOOK_NAME, function () {
-	// if(get_option('rawg_games_import_started') == "no") {
-	// 	return;
-	// }
+	if(get_option('import_start_flag') == "0") {
+		return;
+	}
 
 	/****** DB COUNTER CODE: START ******/
 	$counter = get_option('_counter');
+	$this->readFile( $counter );
 
 	// If counter is set in db then update
 	if( !empty($counter) ) {
