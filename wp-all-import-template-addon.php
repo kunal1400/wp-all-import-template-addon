@@ -171,17 +171,6 @@ class All_template_importer {
 		}
 	}
 
-	public function replaceVariablesByTheirValueInCSV( $str="", $values ) {
-    	if ( is_array($values) && count($values) > 0 ) {
-    		foreach ($values as $key => $value) {
-				$str = str_replace("{{{$key}}}", $value, $str);    			
-    		}
-    		return $str;
-    	} else {
-    		return $values;
-    	}
-    }
-
 	public function reference_post_id_required_field_error() {		
 		$this->showMessage('notice notice-error', 'reference_post_id is required');
 	}
@@ -278,32 +267,7 @@ class All_template_importer {
     		else {
     			return null;
     		}
-		}    	
-
-	   
-
-	   //  	$referencePostTemplate = get_post_meta( $referencePost->ID, '_wp_page_template', true );
-	   //  	foreach ($postarr as $i => $post) {
-				// $newPostId = wp_insert_post( $post );
-				// if ( !empty($newPostId) ) {
-				// 	wp_update_post(
-				// 		array(
-				// 			'ID' => $newPostId,
-				// 			'post_content' => $newPostContent
-				// 		)							
-				// 	);
-
-				// 	// /** 
-				// // 			* Replacing the custom fields by their value from string using 3 semicolon instead of 2 because of default behaviour of PHP
-				// // 			**/
-				// 			// $valueWithAcf = $this->replaceVariablesByTheirValueInCSV( $value, $csvData );
-
-				// // 			// Updating the acf other fields
-				// 			// update_field( $key, $valueWithAcf, $newPostId );
-				// }				
-	   //  	}
-	   //  	// echo "<h3 style='color: green;'>Total record Inserted : ".$totalInserted."</h3>";
-  	
+		}  	
     }
 
     public function readFile() {
@@ -324,12 +288,7 @@ class All_template_importer {
 		if ($csvFilePath) {
 			$csvRowData = $this->getCsvRowByIndex( $csvFilePath, $index );
 
-			if( is_array($csvRowData) && count($csvRowData) > 0 ) {
-
-echo '<pre>';
-print_r($csvRowData);
-echo '</pre>';
-die;
+			if( is_array($csvRowData) && count($csvRowData) > 0 ) {				
 
 				// #1 Getting the reference post id
 				$reference_post_id = get_option('reference_post_id');
@@ -358,6 +317,30 @@ die;
 					if ( $referencePostTemplate && $newPostId ) {
 						update_post_meta( $newPostId, '_wp_page_template', $referencePostTemplate);
 					}
+
+					/**
+					* #7 Getting all the acf fields name from db because in csv some fields are extra and it will help in mapping also
+					**/
+					$acfFields = $this->acf_field_key( $csvRowData );
+					if ( !empty($newPostId) && count($acfFields) > 0 ) {
+						// Iterating all fields
+			        	foreach ($acfFields as $i => $data) {
+			        		$acfKey   	 = $data['post_excerpt'];
+			        		$columnValue = $csvRowData[$data['post_excerpt']];
+			        		$acfValue = $this->replaceVariablesByTheirValueInCSV( $columnValue, $csvRowData );
+
+							$unserializeData = unserialize( $data['post_content'] );						
+							if ( $unserializeData['type'] === "image" ) {
+								$attachmentId = $this->saveRemoteUrl( $acfValue );
+								if ( $attachmentId ) {
+									update_field( $acfKey, $attachmentId, $newPostId );
+								}
+							}
+							else {
+								update_field( $acfKey, html_entity_decode($acfValue), $newPostId );
+							}
+			        	}
+			        }			     
 				}
 				else {
 					$newPostId = $pageExistsData->ID;
@@ -374,11 +357,99 @@ die;
 		}
     }
 
+    public function replaceVariablesByTheirValueInCSV( $str="", $values ) {
+    	if ( is_array($values) && count($values) > 0 ) {
+    		foreach ($values as $key => $value) {
+				$str = str_replace("{{{$key}}}", $value, $str);    			
+    		}
+    		return $str;
+    	} else {
+    		return $values;
+    	}
+    }
+
     public function resetAllData() {
     	update_option('import_start_flag', 0);
     	update_option('_counter', 0);
     }
 
+    function acf_field_key( $csvRowData ) {
+		global $wpdb;
+
+		/**
+		* Getting all the acf fields name from db because in csv some fields are extra and it will help in mapping also
+		**/
+		$tmpKeysArray = "";
+		$i = 0;
+		foreach ( array_keys($csvRowData) as $i => $key ) {
+			if ($i !== 0) {
+				$tmpKeysArray .= ", '{$key}'";
+			}
+			else {
+				$tmpKeysArray .= "'{$key}'";
+			}
+			$i++;
+		}
+
+		$query = "SELECT * FROM $wpdb->posts WHERE post_type='acf-field' AND post_excerpt IN ($tmpKeysArray)";
+
+	    return $wpdb->get_results($query, ARRAY_A);
+	}
+
+	function saveRemoteUrl( $remoteUrl ) {
+		include_once( ABSPATH . 'wp-admin/includes/image.php' );
+		$arrContextOptions = array(
+		    "ssl" => array(
+		        "verify_peer" => false,
+		        "verify_peer_name" => false,
+		    ),
+		);
+
+		// $remoteUrl = 'https://images.hqseek.com/pictures/Playboy_Corin_Riggs_set1/10429JR-0160.jpg';
+
+		if(!empty($remoteUrl)) {
+			$filename 	= basename($remoteUrl);
+			$ifeimg = $this->isFileExistsInMediaGallery($filename);
+
+			if ( !$ifeimg ) {
+				$uploaddir 	= wp_upload_dir();
+				$uploadfile = $uploaddir['path'] . '/' . $filename;
+				$contents 	= file_get_contents($remoteUrl, false, stream_context_create($arrContextOptions));
+				$savefile 	= fopen($uploadfile, 'w');
+				fwrite($savefile, $contents);
+				fclose($savefile);
+
+				$wp_filetype = wp_check_filetype($filename, null );
+
+				$attachment = array(
+				    'post_mime_type' => $wp_filetype['type'],
+				    'post_title' => $filename,
+				    'post_content' => '',
+				    'post_status' => 'inherit'
+				);
+				
+				$attach_id = wp_insert_attachment( $attachment, $uploadfile );
+				$imagenew = get_post( $attach_id );
+				$fullsizepath = get_attached_file( $imagenew->ID );
+				$attach_data = wp_generate_attachment_metadata( $attach_id, $fullsizepath );
+				wp_update_attachment_metadata( $attach_id, $attach_data );
+					
+				return $attach_id;
+			}
+			else {
+				return $ifeimg->ID;
+			}
+		}
+		else {
+			return null;
+		}	
+	}
+
+	function isFileExistsInMediaGallery( $filename ) {
+		global $wpdb;
+		$query = "SELECT * FROM {$wpdb->posts} WHERE post_title='$filename' AND post_type='attachment' ";
+		return $wpdb->get_row($query);
+	}
 }
 
 $all_template_importer = new All_template_importer();
