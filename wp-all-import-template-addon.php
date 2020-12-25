@@ -86,10 +86,38 @@ class All_template_importer {
 				update_option('_counter', $counter);
 			}
 			else {
-				$all_template_importer->resetAllData();	
+				$this->resetAllData();	
 			}
 			/****** END ******/
 		});
+
+		// add_action( "init", function() {
+		// 	if(get_option('import_start_flag') == "0") {
+		// 		return;
+		// 	}
+
+		// 	$counter = get_option('_counter');
+		// 	$responseArr = $this->readfile();
+
+		// 	if ( is_array($responseArr) && $responseArr['status'] == true ) {
+		// 		// If counter is set in db then update
+		// 		if( !empty($counter) ) {
+		// 			$counter++;
+		// 		} 
+		// 		else {
+		// 			$counter = 1;
+		// 		}
+
+		// 		// Updating the option
+		// 		update_option('_counter', $counter);
+		// 	}
+		// 	else {
+		// 		$this->resetAllData();	
+		// 	}
+		// 	echo '<pre>';
+		// 	print_r($responseArr);
+		// 	echo '</pre>';
+		// });
 	}
 
 	public function plugin_menu() {
@@ -187,6 +215,7 @@ class All_template_importer {
 			$reference_post_id = sanitize_text_field( $_POST['reference_post_id'] );
 
 			// Updating options in wp
+    		update_option('_counter', 0);			
 			update_option('import_start_flag', $import_start_flag);
 			update_option('reference_post_id', $reference_post_id);			
 		}
@@ -374,7 +403,7 @@ class All_template_importer {
 				return array("status" => true, "message" => "$newPostId inserted");
 			}
 			else {
-				$this->resetAllData();
+				// $this->resetAllData();
 				return array("status" => false, "message" => "All data imported");				
 			}
 		}
