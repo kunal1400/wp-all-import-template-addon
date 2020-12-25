@@ -61,7 +61,35 @@ class All_template_importer {
 		add_action( "admin_menu", array($this, "plugin_menu") );
 		add_action( "admin_init", array($this, "handle_form_submissions") );
 
-		add_action( "init", array($this, "readFile") );
+		/*** 
+		* Whenever hook is called then the callback function will run
+		***/
+		add_action( SCHEDULE_HOOK_NAME, function () {
+			if(get_option('import_start_flag') == "0") {
+				return;
+			}
+
+			/****** DB COUNTER CODE: START ******/
+			$counter = get_option('_counter');
+			$responseArr = $this->readFile();
+
+			if ( is_array($responseArr) && $responseArr['status'] == true ) {
+				// If counter is set in db then update
+				if( !empty($counter) ) {
+					$counter++;
+				} 
+				else {
+					$counter = 1;
+				}
+
+				// Updating the option
+				update_option('_counter', $counter);
+			}
+			else {
+				$all_template_importer->resetAllData();	
+			}
+			/****** END ******/
+		});
 	}
 
 	public function plugin_menu() {
@@ -272,8 +300,7 @@ class All_template_importer {
 
     public function readFile() {
 		// $files = list_files( $this->target_dir );
-		// $index = get_option('_counter');
-		$index = 1;
+		$index = get_option('_counter');
 
 		$files = glob( $this->target_dir.'*' );
 		$csvFilePath = null;
@@ -288,7 +315,7 @@ class All_template_importer {
 		if ($csvFilePath) {
 			$csvRowData = $this->getCsvRowByIndex( $csvFilePath, $index );
 
-			if( is_array($csvRowData) && count($csvRowData) > 0 ) {				
+			if( is_array($csvRowData) && count($csvRowData) > 0 ) {
 
 				// #1 Getting the reference post id
 				$reference_post_id = get_option('reference_post_id');
@@ -304,7 +331,6 @@ class All_template_importer {
 				// #3 Getting the postArray data		
 				$pageExistsData = get_page_by_title( $postArray['post_title'], OBJECT, $postArray['post_type'] );
 				
-
 				// #4 If pageExistsData data is not present then inserting new post else getting already existed id
 				if ( !$pageExistsData ) {
 					// Inserting the new post
@@ -349,13 +375,13 @@ class All_template_importer {
 			}
 			else {
 				$this->resetAllData();
-				return array("status" => true, "message" => "All data imported");				
+				return array("status" => false, "message" => "All data imported");				
 			}
 		}
 		else {
 			return array("status" => false, "message" => "$csvFilePath not found");
 		}
-    }
+    }    
 
     public function replaceVariablesByTheirValueInCSV( $str="", $values ) {
     	if ( is_array($values) && count($values) > 0 ) {
@@ -454,28 +480,6 @@ class All_template_importer {
 
 $all_template_importer = new All_template_importer();
 
-
-/*** 
-* Whenever hook is called then the callback function will run
-***/
-add_action( SCHEDULE_HOOK_NAME, function () {
-	// if(get_option('import_start_flag') == "0") {
-	// 	return;
-	// }
-
-	// /****** DB COUNTER CODE: START ******/
-	// $counter = get_option('_counter');
-	// // $this->readFile();
-
-	// // If counter is set in db then update
-	// if( !empty($counter) ) {
-	// 	$counter++;
-	// } 
-	// else {
-	// 	$counter = 1;
-	// }
-
-	// // Updating the option
-	// update_option('_counter', $counter);
-	// /****** END ******/
-});
+// add_action("init", function() {
+// 	$all_template_importer->readFile();
+// });
