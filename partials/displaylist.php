@@ -24,6 +24,7 @@
 				<option <?php echo $import_start_flag == "0" ? "selected" : "" ?> value="0">Stop</option>
 			</select>
 		</p>
+		<p><label>CURRENT CSV ROW: <?php echo get_option('_counter') ?></label></p>    	
 		<p><input type="submit" name="import_start_form" value="submit"></p>		
 	</form>
 	<table class='wp-list-table widefat fixed striped media'>
@@ -54,7 +55,7 @@
 							<td><?php echo size_format(filesize($filePath), 2) ?></td>
 							<td>
 								<a class="button button-primary" target="_blank" href="<?php echo ATI_UPLOAD_PUBLIC_PATH.$file ?>">Download</a>
-								<a class="button button-warning" href="<?php //echo '?page=wp-bilmar-downloader&deletefile='.$filename ?>">Delete</a>
+								<a class="button button-warning" href="<?php echo "?page={$this->page_sub_menu_slug}&deletefile=".$file ?>">Delete</a>
 							</td>
 						</tr>
 			        <?php

@@ -54,21 +54,21 @@ register_deactivation_hook(__FILE__, function () {
 class All_template_importer {
 	
 	function __construct() {
-		$this->page_sub_menu_slug = "all_template_importer_csvs";
 		$this->page_menu_slug = "all_template_importer";
+		$this->page_sub_menu_slug = "all_template_importer_csvs";
 		$this->target_dir  	= __DIR__."/uploads/";
 
 		add_action( "admin_menu", array($this, "plugin_menu") );
-		add_action( "admin_init", array($this, "handle_upload") );
+		add_action( "admin_init", array($this, "handle_form_submissions") );
 
-		// add_action( "init", array($this, "readFile") );
+		add_action( "init", array($this, "readFile") );
 	}
 
 	public function plugin_menu() {
 		// dashicons-database-import Not working :(
-		add_menu_page("Template CSV Importer", "Template CSV Importer", "manage_options", $this->page_menu_slug, array($this, "displayUpload"), 'dashicons-admin-multisite', 90);
+		add_menu_page("Upload CSV", "Upload CSV", "manage_options", $this->page_menu_slug, array($this, "displayUpload"), 'dashicons-admin-multisite', 90);
 
-		add_submenu_page( $this->page_menu_slug, "Uploaded CSV", "Uploaded CSV", "manage_options", $this->page_sub_menu_slug, array($this, "displayList") );
+		add_submenu_page( $this->page_menu_slug, "Start/Stop Import", "Start/Stop Import", "manage_options", $this->page_sub_menu_slug, array($this, "displayList") );
 	}
 
 	public function displayUpload() {
@@ -106,7 +106,7 @@ class All_template_importer {
 		}
 	}
 
-	public function handle_upload() {
+	public function handle_form_submissions() {
 		if( isset($_POST['butimport']) ) {
 			$target_file = $this->target_dir . basename($_FILES["import_file"]["name"]);
 
@@ -161,6 +161,13 @@ class All_template_importer {
 			// Updating options in wp
 			update_option('import_start_flag', $import_start_flag);
 			update_option('reference_post_id', $reference_post_id);			
+		}
+
+		if( !empty($_GET['deletefile']) ) {
+			$fileToDelete = realpath( $this->target_dir.sanitize_file_name($_GET['deletefile']) );
+			unlink($fileToDelete);
+			wp_redirect( '?page='.$this->page_sub_menu_slug );
+			exit;
 		}
 	}
 
@@ -299,8 +306,12 @@ class All_template_importer {
   	
     }
 
-    public function readFile( $index=0 ) {
-		$files = list_files( $this->target_dir );
+    public function readFile() {
+		// $files = list_files( $this->target_dir );
+		// $index = get_option('_counter');
+		$index = 1;
+
+		$files = glob( $this->target_dir.'*' );
 		$csvFilePath = null;
 		foreach ($files as $i => $filePath) {
 			$extension = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
@@ -312,33 +323,54 @@ class All_template_importer {
 		
 		if ($csvFilePath) {
 			$csvRowData = $this->getCsvRowByIndex( $csvFilePath, $index );
+
 			if( is_array($csvRowData) && count($csvRowData) > 0 ) {
+
+echo '<pre>';
+print_r($csvRowData);
+echo '</pre>';
+die;
 
 				// #1 Getting the reference post id
 				$reference_post_id = get_option('reference_post_id');
 
 				// #2 Getting the post array
 				$postArray = array(
-					'post_title' => $csvRowData['post_state_full_name'].' | '.$csvRowData['post_state'],
+					'post_title' => $csvRowData['_post_state_full_name'].' | '.$csvRowData['_post_state'],
 					'post_type' => 'page',
 					'post_status' => 'publish',
-					'post_content' => html_entity_decode($csvRowData['__post_content'])
+					'post_content' => html_entity_decode( $csvRowData['__post_content'] )
 				);
 
-				// #3 Inserting the new post
-				$newPostId = wp_insert_post( $postArray );
+				// #3 Getting the postArray data		
+				$pageExistsData = get_page_by_title( $postArray['post_title'], OBJECT, $postArray['post_type'] );
+				
 
-				// #4 Getting the reference post template
-	    		$referencePostTemplate = get_post_meta( $reference_post_id, '_wp_page_template', true );
+				// #4 If pageExistsData data is not present then inserting new post else getting already existed id
+				if ( !$pageExistsData ) {
+					// Inserting the new post
+					$newPostId = wp_insert_post( $postArray );
 
-				// #5 updating the new post template
-				if ( $referencePostTemplate && $newPostId ) {
-					$this->update_page_template( $newPostId, $referencePostTemplate);
+					// #5 Getting the reference post template
+		    		$referencePostTemplate = get_post_meta( $reference_post_id, '_wp_page_template', true );
+					
+					// #6 updating the new post template
+					if ( $referencePostTemplate && $newPostId ) {
+						update_post_meta( $newPostId, '_wp_page_template', $referencePostTemplate);
+					}
 				}
+				else {
+					$newPostId = $pageExistsData->ID;
+				}
+				return array("status" => true, "message" => "$newPostId inserted");
 			}
 			else {
 				$this->resetAllData();
+				return array("status" => true, "message" => "All data imported");				
 			}
+		}
+		else {
+			return array("status" => false, "message" => "$csvFilePath not found");
 		}
     }
 
@@ -356,23 +388,23 @@ $all_template_importer = new All_template_importer();
 * Whenever hook is called then the callback function will run
 ***/
 add_action( SCHEDULE_HOOK_NAME, function () {
-	if(get_option('import_start_flag') == "0") {
-		return;
-	}
+	// if(get_option('import_start_flag') == "0") {
+	// 	return;
+	// }
 
-	/****** DB COUNTER CODE: START ******/
-	$counter = get_option('_counter');
-	$this->readFile( $counter );
+	// /****** DB COUNTER CODE: START ******/
+	// $counter = get_option('_counter');
+	// // $this->readFile();
 
-	// If counter is set in db then update
-	if( !empty($counter) ) {
-		$counter++;
-	} 
-	else {
-		$counter = 1;
-	}
+	// // If counter is set in db then update
+	// if( !empty($counter) ) {
+	// 	$counter++;
+	// } 
+	// else {
+	// 	$counter = 1;
+	// }
 
-	// Updating the option
-	update_option('_counter', $counter);
-	/****** END ******/
+	// // Updating the option
+	// update_option('_counter', $counter);
+	// /****** END ******/
 });
